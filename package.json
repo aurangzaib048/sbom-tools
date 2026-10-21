@@ -4,5 +4,11 @@
   "description": "Pins cdxgen where Dependabot can see it. Nothing is built from this; the bundle ships upstream's prebuilt binary, and this file exists so the version is visible to a bot rather than being a literal in bundles.toml.",
   "dependencies": {
     "@cyclonedx/cdxgen": "12.8.5"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.12",
+    "fast-uri": "3.1.8",
+    "qs": "6.16.0",
+    "undici": "7.29.1"
   }
 }
