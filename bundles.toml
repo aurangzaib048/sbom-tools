@@ -30,10 +30,10 @@ env = { GOMODCACHE = "{prefix}/.gomodcache", GOCACHE = "{prefix}/.gocache", GOPA
   strip_container = true
   [bundle.go.upstream.go.amd64]
   url = "https://go.dev/dl/go{version}.linux-amd64.tar.gz"
-  sha256 = "d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b"
+  sha256 = "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5"
   [bundle.go.upstream.go.arm64]
   url = "https://go.dev/dl/go{version}.linux-arm64.tar.gz"
-  sha256 = "211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0"
+  sha256 = "3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797"
 
 [bundle.rust]
 description = "cargo-cyclonedx with the cargo and rustc it shells out to"
@@ -210,15 +210,25 @@ env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/re
   url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-aarch64.zip"
   sha256 = "a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b"
   [bundle.jvm.upstream.jdk]
-  version = "21.0.12+8"
+  version = "21.0.13+9"
   strip_container = true
   into = "jdk"
+  # emSign roots whose intermediates' private keys were compromised
+  # (CVE-2026-114820, JDK-8395690). OpenJDK says to remove G1, G2 and ECC G3,
+  # and Mozilla removed ECC G3. Temurin 21.0.12 shipped G1 and ECC G3, and
+  # 21.0.13 still ships G1. Taken out of cacerts at assembly; a listed root
+  # the JDK no longer carries is skipped, one still there fails the build.
+  # Matched by SHA-256 because vendors alias the same root differently.
+  distrust_sha256 = [
+    "40:F6:AF:03:46:A9:9A:A1:CD:1D:55:5A:4E:9C:CE:62:C7:F9:63:46:03:EE:40:66:15:83:3D:C8:C8:D0:03:67", # emSign Root CA - G1
+    "86:A1:EC:BA:08:9C:4A:8D:3B:BE:27:34:C6:12:BA:34:1D:81:3E:04:3C:F9:E8:A8:62:CD:5C:57:A3:6B:BE:6B", # emSign ECC Root CA - G3
+  ]
   [bundle.jvm.upstream.jdk.amd64]
-  url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12_8.tar.gz"
-  sha256 = "e4446ff06a276155697597cc0f1b15da004ff083f4964a35271ecee567177370"
+  url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jdk_x64_linux_hotspot_21.0.13_9.tar.gz"
+  sha256 = "d7f5d5cf865a2902b70ff549b97586a7d3f234e016f041ab447ea740c7d66d1c"
   [bundle.jvm.upstream.jdk.arm64]
-  url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.12_8.tar.gz"
-  sha256 = "eba38e871b02d407897bfe017ea35352dfc1420ef6d2112425b0c67325ca509d"
+  url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.13_9.tar.gz"
+  sha256 = "e3522e707fc7dbe2a72c30746b1e7068301a0213ecd213d4491f35a14eb55578"
 
   [bundle.jvm.upstream.maven]
   version = "3.9.16"
@@ -232,15 +242,15 @@ env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/re
   sha512 = "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6"
 
   [bundle.jvm.upstream.gradle]
-  version = "9.6.1"
+  version = "9.8.2"
   strip_container = true
   into = "gradle"
   [bundle.jvm.upstream.gradle.amd64]
-  url = "https://services.gradle.org/distributions/gradle-9.6.1-bin.zip"
-  sha256 = "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
+  url = "https://services.gradle.org/distributions/gradle-9.8.2-bin.zip"
+  sha256 = "21bd5da2de49b642904077f38c0efdc7778e92b3ed0889392dca61b97e389607"
   [bundle.jvm.upstream.gradle.arm64]
-  url = "https://services.gradle.org/distributions/gradle-9.6.1-bin.zip"
-  sha256 = "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
+  url = "https://services.gradle.org/distributions/gradle-9.8.2-bin.zip"
+  sha256 = "21bd5da2de49b642904077f38c0efdc7778e92b3ed0889392dca61b97e389607"
 
   # Gradle and sbt are JVM applications, so one architecture-independent
   # archive serves both. Only the JDK below differs per architecture.
@@ -340,15 +350,15 @@ env = { COMPOSER_HOME = "{prefix}/.composer", COMPOSER_CACHE_DIR = "{prefix}/.co
   # keeps the schema uniform rather than making this the one component shaped
   # differently.
   [bundle.php.upstream.composer]
-  version = "2.9.4"
+  version = "2.10.3"
   kind = "raw"
   bin_name = "composer"
   [bundle.php.upstream.composer.amd64]
   url = "https://getcomposer.org/download/{version}/composer.phar"
-  sha256 = "d3eb5c4cb2e708267dac5f9a76d2a57b07836c7ea68783a1a02bd6d94753ea80"
+  sha256 = "7a2d379d5b8ffdaa028580ef26494c36d2feef4b178d3dd1473a4dbc5e17c8d6"
   [bundle.php.upstream.composer.arm64]
   url = "https://getcomposer.org/download/{version}/composer.phar"
-  sha256 = "d3eb5c4cb2e708267dac5f9a76d2a57b07836c7ea68783a1a02bd6d94753ea80"
+  sha256 = "7a2d379d5b8ffdaa028580ef26494c36d2feef4b178d3dd1473a4dbc5e17c8d6"
 
 [bundle.dotnet]
 description = "cdxgen with the .NET SDK it needs to restore packages.lock.json"

@@ -282,6 +282,55 @@ def add_upstream(name: str, spec: dict, arch: str, prefix: Path, scratch: Path) 
             die(f"{name}: {destination.name} already exists in the bundle")
         shutil.move(str(entry), str(destination))
 
+    if distrusted := spec.get("distrust_sha256"):
+        remove_trusted_roots(name, into, [str(f) for f in distrusted])
+
+
+#: "<alias>, <date>, trustedCertEntry," -- the alias and the date both contain
+#: commas, so anchor on the fixed tail instead of splitting.
+_TRUSTED_ENTRY = re.compile(r"^(.*), [^,]+, \d{4}, trustedCertEntry,\s*$")
+
+
+def _keystore_entries(keytool: Path, keystore: Path) -> dict[str, str]:
+    """Map each SHA-256 fingerprint in a JDK keystore to its alias."""
+    listing = subprocess.run(  # noqa: S603
+        [str(keytool), "-list", "-keystore", str(keystore), "-storepass", "changeit"],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    entries: dict[str, str] = {}
+    alias = ""
+    for line in listing.splitlines():
+        if match := _TRUSTED_ENTRY.match(line):
+            alias = match.group(1)
+        elif line.startswith("Certificate fingerprint (SHA-256): ") and alias:
+            entries[line.split(": ", 1)[1].strip().upper()] = alias
+            alias = ""
+    return entries
+
+
+def remove_trusted_roots(name: str, jdk: Path, fingerprints: list[str]) -> None:
+    """Delete distrusted roots from a JDK's cacerts before it is bundled.
+
+    Matched by SHA-256 rather than alias, because vendors name the same root
+    differently. A listed root the JDK no longer ships is fine; one that is
+    still there afterwards fails the build.
+    """
+    keytool = jdk / "bin" / "keytool"
+    keystore = jdk / "lib" / "security" / "cacerts"
+    if not keytool.is_file() or not keystore.is_file():
+        die(f"{name}: distrust_sha256 needs bin/keytool and lib/security/cacerts")
+    wanted = {f.upper() for f in fingerprints}
+    for fingerprint, alias in _keystore_entries(keytool, keystore).items():
+        if fingerprint in wanted:
+            subprocess.run(  # noqa: S603
+                [str(keytool), "-delete", "-noprompt", "-keystore", str(keystore),
+                 "-storepass", "changeit", "-alias", alias],
+                check=True, capture_output=True,
+            )
+            print(f"  {name}: removed distrusted root {alias}")
+    if left := wanted & set(_keystore_entries(keytool, keystore)):
+        die(f"{name}: distrusted roots still in cacerts: {', '.join(sorted(left))}")
+
 
 def install_from_lockfile(prefix: Path, scratch: Path) -> None:
     """Install cdxgen from bun.lock, letting bun do the verifying.
