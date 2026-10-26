@@ -193,7 +193,11 @@ jobs:
             echo "::warning::No product ID for this environment; the SBOM will not be tagged into a product release"
           fi
 
-      - uses: sbomify/sbomify-action@master
+      # Pinned by SHA like every other action here: this job can mint OIDC
+      # tokens, and a mutable @master is how tj-actions and trivy-action were
+      # turned against their users. The pin freezes action.yml, not the image
+      # it names -- that is still :latest until sbomify-action#474 lands.
+      - uses: sbomify/sbomify-action@57ca9ba7de2232b073a3799bc8c0dc002e6777b9 # v26.10.2
         if: steps.present.outputs.found == 'true'
         env:
           API_BASE_URL: ${{ steps.cfg.outputs.api_base_url }}
@@ -292,7 +296,8 @@ jobs:
             -o "cyclonedx-json=$PWD/bundle-${{ matrix.bundle }}.cdx.json" \
             --source-name "sbom-tools-${{ matrix.bundle }}"
 
-      - uses: sbomify/sbomify-action@master
+      # Pinned for the same reason as in sources; this job can also attest.
+      - uses: sbomify/sbomify-action@57ca9ba7de2232b073a3799bc8c0dc002e6777b9 # v26.10.2
         env:
           API_BASE_URL: ${{ steps.cfg.outputs.api_base_url }}
           OIDC_AUDIENCE: ${{ steps.cfg.outputs.oidc_audience }}

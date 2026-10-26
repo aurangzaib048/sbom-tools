@@ -70,8 +70,12 @@ checked out, not which tool it wants.
 | Scala | `build.sbt` | `jvm` |
 | C++ | `conan.lock` | `cdxgen` |
 | Terraform | `.terraform.lock.hcl` | `syft` |
+| Haskell | `stack.yaml.lock`, `stack.yaml`, `cabal.project.freeze` | `syft` |
+| Erlang | `rebar.lock` | `syft` |
+| Clojure | `deps.edn`, `project.clj` | `cdxgen` |
+| PlatformIO | `platformio.ini` | none -- sbomify-action reads `.pio/libdeps` itself |
 
-Six languages share the `cdxgen` bundle because cdxgen reads their lock files
+Seven languages share the `cdxgen` bundle because cdxgen reads their lock files
 directly and needs none of their toolchains: a PHP or Ruby project is parsed
 without PHP or Ruby installed. The bundles that carry a toolchain do so
 because their generator shells out to it -- cyclonedx-gomod runs `go list`,
@@ -107,13 +111,13 @@ that is still downloadable never complains about being old.
 | `Cargo.lock` | Dependabot `cargo` | cargo-cyclonedx |
 | `bun.lock` | Dependabot `bun` | cdxgen |
 | `global.json` | Dependabot `dotnet-sdk` | the .NET SDK |
-| `bun.lock` | Dependabot `bun` | cdxgen |
-| `bundles.toml` | `scripts/check_tool_versions.py` | the JDK, bun, Maven, Gradle, sbt, Rust |
+| `bundles.toml` | nothing yet -- bumped by hand | the JDK, bun, Maven, Gradle, sbt, Rust |
 
 The last row is the residue, and it is all *runtimes* rather than our tools:
 no Dependabot ecosystem covers a JDK, a bun or Maven or Gradle distribution,
-an sbt launcher or a Rust toolchain. Those stay literal and are watched by a
-script instead.
+an sbt launcher or a Rust toolchain. Those stay literal, and nothing watches
+them yet: the version-check script this table used to name was never
+written, so a security release reaches them only when someone bumps the pin.
 
 Everything in the rows above is one of our own tools, and every one of them
 is pinned by the package manager that owns it — nothing here maintains a
@@ -137,7 +141,12 @@ discover it. `--update` rewrites them.
 | trigger | published to |
 | --- | --- |
 | push to `master` | the `tools-rolling` pre-release, replaced in place |
-| published tag | that release's assets, immutable |
+| published tag | that release's assets, built from the tagged commit |
+
+Tagged releases are not immutable yet. GitHub's immutable releases are off
+for this repository, so a release's assets can still be replaced; the
+attestation beside each bundle is what tells you the bytes came from this
+workflow.
 
 `tools-rolling` is what lets master run against a freshly bumped tool before a
 release is cut. Cutting a release to find out whether a bump works is
@@ -145,23 +154,23 @@ backwards: the release is the thing the bump might break. It is a pre-release
 so it never displaces the real latest release, and it is not a supported
 download.
 
-Every binary ships next to its Sigstore bundle:
+Every bundle archive ships next to its Sigstore attestation:
 
 ```
-syft-linux-amd64
-syft-linux-amd64.sigstore.json
+syft-linux-amd64.tar.gz
+syft-linux-amd64.tar.gz.sigstore.json
 ```
 
 ## Verifying
 
 ```console
 $ cosign verify-blob-attestation \
-    --bundle syft-linux-amd64.sigstore.json \
+    --bundle syft-linux-amd64.tar.gz.sigstore.json \
     --new-bundle-format \
     --type slsaprovenance1 \
     --certificate-identity-regexp '^https://github\.com/sbomify/sbom-tools/\.github/workflows/build\.yml@refs/(heads/master|tags/.+)$' \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    syft-linux-amd64
+    syft-linux-amd64.tar.gz
 ```
 
 `--new-bundle-format` and `--type slsaprovenance1` are both required: cosign v3
@@ -173,7 +182,7 @@ The bundle carries the subject digest inside the signed statement, so this
 checks a digest that was signed rather than one copied into a file by hand.
 That is why consumers pin no digest of their own.
 
-## What is deliberately not here
+## What is deliberately not built here
 
 Language runtimes and SDKs — Go, Rust, the JDK, Maven — and cdxgen. Runtimes
 are what the tools above shell out to, and building a JDK or rustc from source
@@ -184,7 +193,9 @@ Node application that resolves data files against `__dirname`, so a plain
 distro container to produce theirs, and a worse copy of an artifact they
 already test helps nobody.
 
-Consumers pin those upstream, by digest.
+They still ship in the bundles. The runtimes are the vendors' own archives,
+pinned by digest in `bundles.toml`; cdxgen is bun plus the `node_modules`
+that `bun.lock` pins, installed when the bundle is assembled.
 
 ## Integration tests
 
@@ -192,8 +203,8 @@ Building a bundle proves the archive assembles. It does not prove the tools
 inside it can produce an SBOM of a real project, and every defect worth
 finding so far has been of the second kind — the .NET SDK sitting at the
 payload root so nothing reached `PATH`, sbt 2.x whose launcher dies before a
-build loads, a Gradle plugin class spelled `CyclonedxPlugin` rather than
-`CycloneDxPlugin`. Each of those assembled, verified and published perfectly
+build loads, a Gradle plugin class spelled `CycloneDxPlugin` rather than
+`CyclonedxPlugin`. Each of those assembled, verified and published perfectly
 well.
 
 `tests/integration.py` clones real repositories, runs each bundle's tools

@@ -6,7 +6,7 @@ inside it can produce an SBOM of a real project, and every defect worth
 finding so far has been of the second kind: the .NET SDK sitting at the
 payload root rather than under bin/ so nothing reached PATH; sbt 2.x whose
 launcher dies before a build loads; a Gradle plugin class spelled
-CyclonedxPlugin rather than CycloneDxPlugin. Each of those assembled, verified
+CycloneDxPlugin rather than CyclonedxPlugin. Each of those assembled, verified
 and published perfectly well.
 
 So this clones real repositories, runs the bundle's own tools against them,
@@ -36,7 +36,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PROJECTS = tomllib.loads((ROOT / "tests" / "projects.toml").read_text())["project"]
+sys.path.insert(0, str(ROOT / "scripts"))
+from plugin_purls import version_of  # noqa: E402
+
+PROJECTS =tomllib.loads((ROOT / "tests" / "projects.toml").read_text())["project"]
 RELEASE_BASE = "https://github.com/sbomify/sbom-tools/releases/download"
 CACHE = Path(os.environ.get("SBOM_TOOLS_CACHE", Path.home() / ".cache" / "sbom-tools-it"))
 
@@ -183,9 +186,16 @@ def run(cmd: list[str], cwd: Path, env: dict[str, str], timeout: int = 3600) -> 
 #: okhttp against 34. cdxgen fails outright on all three, and trivy returns
 #: zero for Gradle and sbt because `trivy fs` matches lock files and a JVM
 #: source tree has none.
-CYCLONEDX_MAVEN = "org.cyclonedx:cyclonedx-maven-plugin:2.9.1"
-CYCLONEDX_GRADLE = "org.cyclonedx:cyclonedx-gradle-plugin:3.3.0"
-SBT_SBOM = "0.6.0"
+#:
+#: Versions come from the manifests Dependabot maintains, the same ones the
+#: jvm bundle records in its bundle.toml. As literals here they sat at 2.9.1
+#: and 3.3.0 while the bundle shipped 2.9.3 and 3.5.1, so a green run tested
+#: plugins nobody was getting.
+CYCLONEDX_MAVEN = "org.cyclonedx:cyclonedx-maven-plugin:" + version_of(
+    "tools/pom.xml", "org.cyclonedx", "cyclonedx-maven-plugin")
+CYCLONEDX_GRADLE = "org.cyclonedx:cyclonedx-gradle-plugin:" + version_of(
+    "tools/build.gradle", "org.cyclonedx", "cyclonedx-gradle-plugin")
+SBT_SBOM = version_of("tools/pom.xml", "com.github.sbt", "sbt-sbom_2.12_1.0")
 
 #: Applied through --init-script so the project's build file is never edited.
 #: The class is CyclonedxPlugin, lowercase d -- the other spelling fails with

@@ -25,9 +25,8 @@ updates:
     commit-message:
       prefix: "chore"
 
-  # cdxgen, pinned in package.json/bun.lock. The bundle ships upstream's
-  # prebuilt binary rather than anything built from this, but the version has
-  # to live somewhere a bot can raise a PR against.
+  # cdxgen, pinned in package.json/bun.lock. The bundles install it from this
+  # lockfile when they are assembled, so a bump here is a bump of what ships.
   - package-ecosystem: "bun"
     directory: "/"
     schedule:

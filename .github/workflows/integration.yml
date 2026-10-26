@@ -5,7 +5,7 @@
 # inside it produce an SBOM of a real project, and every defect worth finding
 # so far has been of the second kind: the .NET SDK sitting at the payload root
 # so nothing reached PATH; sbt 2.x whose launcher dies before a build loads; a
-# Gradle plugin class spelled CyclonedxPlugin rather than CycloneDxPlugin.
+# Gradle plugin class spelled CycloneDxPlugin rather than CyclonedxPlugin.
 # Each assembled, verified and published perfectly well.
 #
 # Runs after build.yml so it exercises what was just published, and on a
@@ -39,8 +39,8 @@ jobs:
     # Matched to the architecture being tested. Until now this ran amd64 only,
     # so half of what we publish had generated an SBOM exactly never --
     # build.yml executes each arm64 binary for its version string, which proves
-    # it loads, not that it can resolve a real project's dependencies. An
-    # immutable release should not be the first time that is tried.
+    # it loads, not that it can resolve a real project's dependencies. A cut
+    # release should not be the first time that is tried.
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false

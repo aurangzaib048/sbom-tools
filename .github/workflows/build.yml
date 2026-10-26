@@ -11,7 +11,10 @@
 # Where things land follows the release model:
 #
 #   push to master   the "tools-rolling" pre-release, replaced in place
-#   published tag    release assets, immutable for the life of the release
+#   published tag    release assets, built from the tagged commit
+#
+# Tagged releases are not immutable: GitHub's immutable releases are off for
+# this repository, and the Publish step below uploads with --clobber.
 #
 # Both are needed. A workflow artifact cannot serve as the rolling half: it
 # requires authentication even on a public repository and expires after 90
@@ -53,7 +56,7 @@ jobs:
           else
             gh release create "$TAG" \
               --title "Rolling bundles (master)" \
-              --notes "Ecosystem bundles built from the lockfiles on master. Replaced on every push; not a supported download. Cut releases carry their own immutable copies." \
+              --notes "Ecosystem bundles built from the lockfiles on master. Replaced on every push; not a supported download. Cut releases carry their own copies." \
               --prerelease --latest=false --target "$GITHUB_SHA"
           fi
 
