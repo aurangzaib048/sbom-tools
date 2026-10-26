@@ -153,13 +153,14 @@ jobs:
 
       - id: cfg
         env:
-          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          # The release tag when a release built this, else empty.
+          TAG: ${{ (github.event.workflow_run.event == 'release' && github.event.workflow_run.head_branch) || (github.ref_type == 'tag' && github.ref_name) || '' }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
-          if [[ "$HEAD_BRANCH" == v* ]]; then
+          if [[ -n "$TAG" ]]; then
             {
               echo "is_prod=true"
-              echo "version=${HEAD_BRANCH}"
+              echo "version=${TAG}"
               echo "api_base_url=https://app.sbomify.com"
               echo "oidc_audience=sbomify.com"
             } >> "$GITHUB_OUTPUT"
@@ -218,14 +219,15 @@ jobs:
 
       - id: cfg
         env:
-          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          # The release tag when a release built this, else empty.
+          TAG: ${{ (github.event.workflow_run.event == 'release' && github.event.workflow_run.head_branch) || (github.ref_type == 'tag' && github.ref_name) || '' }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
-          if [[ "$HEAD_BRANCH" == v* ]]; then
+          if [[ -n "$TAG" ]]; then
             {
               echo "is_prod=true"
-              echo "release=${HEAD_BRANCH}"
-              echo "version=${HEAD_BRANCH}"
+              echo "release=${TAG}"
+              echo "version=${TAG}"
               echo "api_base_url=https://app.sbomify.com"
               echo "oidc_audience=sbomify.com"
             } >> "$GITHUB_OUTPUT"
