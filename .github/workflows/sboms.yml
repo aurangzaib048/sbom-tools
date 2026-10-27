@@ -152,11 +152,22 @@ jobs:
           # failed with "null null". The plugins are real supply chain all the
           # same: Maven, Gradle and sbt fetch them at run time and they shape
           # every JVM SBOM we produce, while appearing in nothing we ship.
-          - name: build-plugins
-            component_name: sbom-tools - Build Plugins
+          #
+          # One row per manifest, because Maven and Gradle are separate
+          # components. Folding both into one upload left the Gradle
+          # component with no SBOM at all.
+          - name: maven-plugins
+            component_name: sbom-tools - Maven Plugins
             staging_id: OaGapU0irAlf
             prod_id: aVlfJRUyWiai
             lockfile: none
+            plugins: tools/pom.xml
+          - name: gradle-plugins
+            component_name: sbom-tools - Gradle Plugins
+            staging_id: TRQPSbnQHGqG
+            prod_id: UzaHvvvYRSUc
+            lockfile: none
+            plugins: tools/build.gradle
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -180,7 +191,7 @@ jobs:
       # cannot drift from the pins.
       - name: List the build plugins
         if: matrix.lockfile == 'none'
-        run: python3 scripts/plugin_purls.py | tee additional_packages.txt
+        run: python3 scripts/plugin_purls.py "${{ matrix.plugins }}" | tee additional_packages.txt
 
       - id: cfg
         env:
