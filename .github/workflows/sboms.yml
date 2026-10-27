@@ -69,6 +69,17 @@
 # on first use, so the first job to finish creates it and the rest join it.
 # Without this a cut release left eleven component SBOMs on production and no
 # product release tying them together.
+#
+# The version is the tag without its "tools-" prefix: release tools-26.10.2
+# publishes as 26.10.2.
+#
+# Every uploaded SBOM is signed with a GitHub build-provenance attestation over
+# the exact file sbomify received. sbomify verifies it through GitHub's
+# attestations API, keyed by the SBOM's digest, so the attested file and the
+# uploaded file must be the same bytes -- hence OUTPUT_FILE on every upload.
+#
+# A dispatch with a tag republishes that release's SBOMs to production, for
+# when a release's publication needs redoing without cutting another one.
 name: sboms
 
 on:
@@ -76,6 +87,13 @@ on:
     workflows: [Build]
     types: [completed]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: >-
+          Release tag to republish SBOMs for (e.g. tools-26.10.2). Empty
+          publishes master to staging.
+        required: false
+        default: ''
 
 concurrency:
   group: sboms-${{ github.event.workflow_run.head_branch || github.ref }}
@@ -134,15 +152,26 @@ jobs:
           # failed with "null null". The plugins are real supply chain all the
           # same: Maven, Gradle and sbt fetch them at run time and they shape
           # every JVM SBOM we produce, while appearing in nothing we ship.
-          - name: build-plugins
-            component_name: sbom-tools - Build Plugins
+          #
+          # One row per manifest, because Maven and Gradle are separate
+          # components. Folding both into one upload left the Gradle
+          # component with no SBOM at all.
+          - name: maven-plugins
+            component_name: sbom-tools - Maven Plugins
             staging_id: OaGapU0irAlf
             prod_id: aVlfJRUyWiai
             lockfile: none
+            plugins: tools/pom.xml
+          - name: gradle-plugins
+            component_name: sbom-tools - Gradle Plugins
+            staging_id: TRQPSbnQHGqG
+            prod_id: UzaHvvvYRSUc
+            lockfile: none
+            plugins: tools/build.gradle
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.event.workflow_run.head_sha || inputs.tag || github.sha }}
 
       # workflow_run always runs the workflow from the default branch but
       # checks out the commit that was built, so the first run after adding a
@@ -162,18 +191,20 @@ jobs:
       # cannot drift from the pins.
       - name: List the build plugins
         if: matrix.lockfile == 'none'
-        run: python3 scripts/plugin_purls.py | tee additional_packages.txt
+        run: python3 scripts/plugin_purls.py "${{ matrix.plugins }}" | tee additional_packages.txt
 
       - id: cfg
         env:
-          # The release tag when a release built this, else empty.
-          TAG: ${{ (github.event.workflow_run.event == 'release' && github.event.workflow_run.head_branch) || (github.ref_type == 'tag' && github.ref_name) || '' }}
+          # The release tag when a release built this or a dispatch named one,
+          # else empty.
+          TAG: ${{ (github.event.workflow_run.event == 'release' && github.event.workflow_run.head_branch) || inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
+          # The tag is tools-26.10.2; the version it names is 26.10.2.
           if [[ -n "$TAG" ]]; then
             {
               echo "is_prod=true"
-              echo "version=${TAG}"
+              echo "version=${TAG#tools-}"
               echo "api_base_url=https://app.sbomify.com"
               echo "oidc_audience=sbomify.com"
             } >> "$GITHUB_OUTPUT"
@@ -187,7 +218,8 @@ jobs:
           fi
           if [[ -n "$TAG" ]]; then PRODUCT_ID="$PROD_PRODUCT_ID"; else PRODUCT_ID="$STAGING_PRODUCT_ID"; fi
           if [[ -n "$PRODUCT_ID" ]]; then
-            VERSION="${TAG:-${HEAD_SHA:0:7}}"
+            VERSION="${TAG#tools-}"
+            VERSION="${VERSION:-${HEAD_SHA:0:7}}"
             echo "product_release=[\"${PRODUCT_ID}:${VERSION}\"]" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::No product ID for this environment; the SBOM will not be tagged into a product release"
@@ -210,6 +242,15 @@ jobs:
           OUTPUT_FILE: sbom-tools-${{ matrix.name }}.cdx.json
           PRODUCT_RELEASE: ${{ steps.cfg.outputs.product_release }}
           SBOMIFY_CACHE_DIR: ${{ github.workspace }}/.sbomify-cache
+
+      # Signs the exact document that was uploaded. sbomify finds the
+      # attestation through GitHub's attestations API by the SBOM's digest,
+      # so attesting anything but OUTPUT_FILE would sign a different file.
+      - name: Attest the SBOM
+        if: steps.present.outputs.found == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: sbom-tools-${{ matrix.name }}.cdx.json
 
   # ---------------------------------------------------------------------
   # What we ship. Scanned as assembled, by the syft inside each bundle.
@@ -235,20 +276,23 @@ jobs:
           - {bundle: cdxgen, prod_id: eRNnEiShDEaa, staging_id: WMs0DX7QKg83}
           - {bundle: jvm, prod_id: hpeisMIpRHU7, staging_id: mOTJsOzjZPi4}
           - {bundle: dotnet, prod_id: WRDnZcyYlXLB, staging_id: awnaRBPzntLv}
+          - {bundle: php, prod_id: AMKIbLWTtZ07, staging_id: ZW3G2b8Gc3Ul}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - id: cfg
         env:
-          # The release tag when a release built this, else empty.
-          TAG: ${{ (github.event.workflow_run.event == 'release' && github.event.workflow_run.head_branch) || (github.ref_type == 'tag' && github.ref_name) || '' }}
+          # The release tag when a release built this or a dispatch named one,
+          # else empty.
+          TAG: ${{ (github.event.workflow_run.event == 'release' && github.event.workflow_run.head_branch) || inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
+          # The tag is tools-26.10.2; the version it names is 26.10.2.
           if [[ -n "$TAG" ]]; then
             {
               echo "is_prod=true"
               echo "release=${TAG}"
-              echo "version=${TAG}"
+              echo "version=${TAG#tools-}"
               echo "api_base_url=https://app.sbomify.com"
               echo "oidc_audience=sbomify.com"
             } >> "$GITHUB_OUTPUT"
@@ -263,7 +307,8 @@ jobs:
           fi
           if [[ -n "$TAG" ]]; then PRODUCT_ID="$PROD_PRODUCT_ID"; else PRODUCT_ID="$STAGING_PRODUCT_ID"; fi
           if [[ -n "$PRODUCT_ID" ]]; then
-            VERSION="${TAG:-${HEAD_SHA:0:7}}"
+            VERSION="${TAG#tools-}"
+            VERSION="${VERSION:-${HEAD_SHA:0:7}}"
             echo "product_release=[\"${PRODUCT_ID}:${VERSION}\"]" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::No product ID for this environment; the SBOM will not be tagged into a product release"
@@ -292,6 +337,21 @@ jobs:
             -o "cyclonedx-json=$PWD/bundle-${{ matrix.bundle }}.cdx.json" \
             --source-name "sbom-tools-${{ matrix.bundle }}"
 
+      # Libraries linked into a static binary leave nothing on disk for syft
+      # to find, so the build records them inside the bundle and they are
+      # added here. Only the php bundle has any today; for the rest this
+      # finds no records and the upload gets no additional packages.
+      - name: Collect what the static binaries link
+        id: linked
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          records=(unpacked/share/sbom-tools/linked/*.purls)
+          if (( ${#records[@]} )); then
+            cat "${records[@]}" | tee linked_packages.txt
+            echo "file=linked_packages.txt" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: sbomify/sbomify-action@master
         env:
           API_BASE_URL: ${{ steps.cfg.outputs.api_base_url }}
@@ -300,11 +360,40 @@ jobs:
           COMPONENT_NAME: sbom-tools - ${{ matrix.bundle }} bundle
           COMPONENT_VERSION: ${{ steps.cfg.outputs.version }}
           SBOM_FILE: bundle-${{ matrix.bundle }}.cdx.json
+          ADDITIONAL_PACKAGES_FILE: ${{ steps.linked.outputs.file }}
+          OUTPUT_FILE: sbom-tools-bundle-${{ matrix.bundle }}.cdx.json
           UPLOAD: 'true'
           AUGMENT: 'true'
           ENRICH: 'true'
           PRODUCT_RELEASE: ${{ steps.cfg.outputs.product_release }}
           SBOMIFY_CACHE_DIR: ${{ github.workspace }}/.sbomify-cache
+
+      # sbomify-action only warns when it cannot inject additional packages,
+      # so a malformed record would upload an SBOM that silently lacks the
+      # libraries it was meant to add.
+      - name: Refuse an SBOM missing a linked library
+        if: steps.linked.outputs.file != ''
+        run: |
+          python3 - <<'EOF'
+          import json
+          import sys
+
+          from urllib.parse import unquote
+
+          document = json.load(open("sbom-tools-bundle-${{ matrix.bundle }}.cdx.json"))
+          present = {unquote(c.get("purl", "")).split("?")[0] for c in document.get("components") or []}
+          wanted = [line.strip() for line in open("linked_packages.txt") if line.strip() and not line.startswith("#")]
+          missing = [purl for purl in wanted if unquote(purl).split("?")[0] not in present]
+          for purl in wanted:
+              print(f"::notice::{'missing' if purl in missing else 'linked'}: {purl}")
+          sys.exit(f"not in the SBOM: {', '.join(missing)}" if missing else 0)
+          EOF
+
+      # The augmented OUTPUT_FILE is what was uploaded, not the raw syft scan.
+      - name: Attest the SBOM
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: sbom-tools-bundle-${{ matrix.bundle }}.cdx.json
 
       # An empty document uploads cleanly and describes nothing, which is the
       # failure this workflow exists to prevent.
