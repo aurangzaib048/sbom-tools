@@ -88,9 +88,7 @@ permissions:
 # the two IDs differ.
 env:
   STAGING_PRODUCT_ID: WA1sUetBBFcW
-  # TODO: set once the production product's ID is confirmed. While empty,
-  # release SBOMs still upload to production but are tagged into no release.
-  PROD_PRODUCT_ID: ''
+  PROD_PRODUCT_ID: PmdIuuj43CV3
 
 jobs:
   # ---------------------------------------------------------------------
