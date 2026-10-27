@@ -276,6 +276,7 @@ jobs:
           - {bundle: cdxgen, prod_id: eRNnEiShDEaa, staging_id: WMs0DX7QKg83}
           - {bundle: jvm, prod_id: hpeisMIpRHU7, staging_id: mOTJsOzjZPi4}
           - {bundle: dotnet, prod_id: WRDnZcyYlXLB, staging_id: awnaRBPzntLv}
+          - {bundle: php, prod_id: AMKIbLWTtZ07, staging_id: ZW3G2b8Gc3Ul}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
