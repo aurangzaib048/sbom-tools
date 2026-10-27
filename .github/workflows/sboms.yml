@@ -69,6 +69,17 @@
 # on first use, so the first job to finish creates it and the rest join it.
 # Without this a cut release left eleven component SBOMs on production and no
 # product release tying them together.
+#
+# The version is the tag without its "tools-" prefix: release tools-26.10.2
+# publishes as 26.10.2.
+#
+# Every uploaded SBOM is signed with a GitHub build-provenance attestation over
+# the exact file sbomify received. sbomify verifies it through GitHub's
+# attestations API, keyed by the SBOM's digest, so the attested file and the
+# uploaded file must be the same bytes -- hence OUTPUT_FILE on every upload.
+#
+# A dispatch with a tag republishes that release's SBOMs to production, for
+# when a release's publication needs redoing without cutting another one.
 name: sboms
 
 on:
@@ -76,6 +87,13 @@ on:
     workflows: [Build]
     types: [completed]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: >-
+          Release tag to republish SBOMs for (e.g. tools-26.10.2). Empty
+          publishes master to staging.
+        required: false
+        default: ''
 
 concurrency:
   group: sboms-${{ github.event.workflow_run.head_branch || github.ref }}
@@ -142,7 +160,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.event.workflow_run.head_sha || inputs.tag || github.sha }}
 
       # workflow_run always runs the workflow from the default branch but
       # checks out the commit that was built, so the first run after adding a
@@ -166,14 +184,16 @@ jobs:
 
       - id: cfg
         env:
-          # The release tag when a release built this, else empty.
-          TAG: ${{ (github.event.workflow_run.event == 'release' && github.event.workflow_run.head_branch) || (github.ref_type == 'tag' && github.ref_name) || '' }}
+          # The release tag when a release built this or a dispatch named one,
+          # else empty.
+          TAG: ${{ (github.event.workflow_run.event == 'release' && github.event.workflow_run.head_branch) || inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
+          # The tag is tools-26.10.2; the version it names is 26.10.2.
           if [[ -n "$TAG" ]]; then
             {
               echo "is_prod=true"
-              echo "version=${TAG}"
+              echo "version=${TAG#tools-}"
               echo "api_base_url=https://app.sbomify.com"
               echo "oidc_audience=sbomify.com"
             } >> "$GITHUB_OUTPUT"
@@ -187,7 +207,8 @@ jobs:
           fi
           if [[ -n "$TAG" ]]; then PRODUCT_ID="$PROD_PRODUCT_ID"; else PRODUCT_ID="$STAGING_PRODUCT_ID"; fi
           if [[ -n "$PRODUCT_ID" ]]; then
-            VERSION="${TAG:-${HEAD_SHA:0:7}}"
+            VERSION="${TAG#tools-}"
+            VERSION="${VERSION:-${HEAD_SHA:0:7}}"
             echo "product_release=[\"${PRODUCT_ID}:${VERSION}\"]" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::No product ID for this environment; the SBOM will not be tagged into a product release"
@@ -210,6 +231,15 @@ jobs:
           OUTPUT_FILE: sbom-tools-${{ matrix.name }}.cdx.json
           PRODUCT_RELEASE: ${{ steps.cfg.outputs.product_release }}
           SBOMIFY_CACHE_DIR: ${{ github.workspace }}/.sbomify-cache
+
+      # Signs the exact document that was uploaded. sbomify finds the
+      # attestation through GitHub's attestations API by the SBOM's digest,
+      # so attesting anything but OUTPUT_FILE would sign a different file.
+      - name: Attest the SBOM
+        if: steps.present.outputs.found == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: sbom-tools-${{ matrix.name }}.cdx.json
 
   # ---------------------------------------------------------------------
   # What we ship. Scanned as assembled, by the syft inside each bundle.
@@ -240,15 +270,17 @@ jobs:
 
       - id: cfg
         env:
-          # The release tag when a release built this, else empty.
-          TAG: ${{ (github.event.workflow_run.event == 'release' && github.event.workflow_run.head_branch) || (github.ref_type == 'tag' && github.ref_name) || '' }}
+          # The release tag when a release built this or a dispatch named one,
+          # else empty.
+          TAG: ${{ (github.event.workflow_run.event == 'release' && github.event.workflow_run.head_branch) || inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
+          # The tag is tools-26.10.2; the version it names is 26.10.2.
           if [[ -n "$TAG" ]]; then
             {
               echo "is_prod=true"
               echo "release=${TAG}"
-              echo "version=${TAG}"
+              echo "version=${TAG#tools-}"
               echo "api_base_url=https://app.sbomify.com"
               echo "oidc_audience=sbomify.com"
             } >> "$GITHUB_OUTPUT"
@@ -263,7 +295,8 @@ jobs:
           fi
           if [[ -n "$TAG" ]]; then PRODUCT_ID="$PROD_PRODUCT_ID"; else PRODUCT_ID="$STAGING_PRODUCT_ID"; fi
           if [[ -n "$PRODUCT_ID" ]]; then
-            VERSION="${TAG:-${HEAD_SHA:0:7}}"
+            VERSION="${TAG#tools-}"
+            VERSION="${VERSION:-${HEAD_SHA:0:7}}"
             echo "product_release=[\"${PRODUCT_ID}:${VERSION}\"]" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::No product ID for this environment; the SBOM will not be tagged into a product release"
@@ -300,11 +333,18 @@ jobs:
           COMPONENT_NAME: sbom-tools - ${{ matrix.bundle }} bundle
           COMPONENT_VERSION: ${{ steps.cfg.outputs.version }}
           SBOM_FILE: bundle-${{ matrix.bundle }}.cdx.json
+          OUTPUT_FILE: sbom-tools-bundle-${{ matrix.bundle }}.cdx.json
           UPLOAD: 'true'
           AUGMENT: 'true'
           ENRICH: 'true'
           PRODUCT_RELEASE: ${{ steps.cfg.outputs.product_release }}
           SBOMIFY_CACHE_DIR: ${{ github.workspace }}/.sbomify-cache
+
+      # The augmented OUTPUT_FILE is what was uploaded, not the raw syft scan.
+      - name: Attest the SBOM
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: sbom-tools-bundle-${{ matrix.bundle }}.cdx.json
 
       # An empty document uploads cleanly and describes nothing, which is the
       # failure this workflow exists to prevent.
