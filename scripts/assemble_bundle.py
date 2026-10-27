@@ -103,6 +103,11 @@ def resolve_version(spec: dict) -> str:
     return reader(path, source)  # type: ignore[misc]
 
 
+#: Where a bundle records the libraries its static binaries link, one
+#: <tool>.purls per binary. sboms.yml reads them back as additional packages.
+LINKED_DIR = "share/sbom-tools/linked"
+
+
 def die(message: str) -> None:
     print(f"error: {message}", file=sys.stderr)
     raise SystemExit(1)
@@ -533,6 +538,15 @@ def main() -> int:
             if name not in provides:
                 provides.append(name)
             print(f"  included {name} (built here)")
+            # What a static binary linked in, as PURLs. Shipped beside it
+            # because the binary itself no longer says: there is no .so and
+            # no package database left for a scanner to read.
+            linked = source.with_name(source.name + ".linked")
+            if linked.is_file():
+                record = prefix / LINKED_DIR / f"{name}.purls"
+                record.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(linked, record)
+                print(f"  recorded what {name} links statically")
 
         for name, upstream in (spec.get("upstream") or {}).items():
             add_upstream(name, upstream, args.arch, prefix, scratch)

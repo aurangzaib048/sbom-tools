@@ -239,7 +239,26 @@ jobs:
             make -j\"\$(nproc)\" LDFLAGS=-all-static >/dev/null
             strip sapi/cli/php
             cp sapi/cli/php /out/php-linux-${{ matrix.goarch }}
+            # The libraries linked into the binary, as PURLs. Static linking
+            # leaves nothing for syft to find later -- no .so, no package
+            # database -- so a CVE in OpenSSL would never surface against the
+            # php bundle. Recorded here, from the package manager that
+            # supplied them, so the versions are the ones actually linked.
+            # Named by origin, the source package Alpine's security database
+            # and OSV are keyed on, rather than the -static/-dev subpackage.
+            . /etc/os-release
+            for pkg in musl-dev openssl-libs-static zlib-static; do
+              apk list --installed \"\$pkg\" | awk -v pkg=\"\$pkg\" -v distro=\"alpine-\$VERSION_ID\" '
+                index(\$1, pkg \"-\") == 1 {
+                  version = substr(\$1, length(pkg) + 2)
+                  origin = \$3; gsub(/[{}]/, \"\", origin)
+                  printf \"pkg:apk/alpine/%s@%s?arch=%s&distro=%s\\n\", origin, version, \$2, distro
+                  found = 1
+                }
+                END { if (!found) exit 1 }'
+            done > /out/php-linux-${{ matrix.goarch }}.linked
           "
+          cat "dist/php-linux-${{ matrix.goarch }}.linked"
 
       - name: Smoke test
         run: |
@@ -273,7 +292,9 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tool-php-${{ matrix.goarch }}
-          path: dist/php-linux-${{ matrix.goarch }}
+          path: |
+            dist/php-linux-${{ matrix.goarch }}
+            dist/php-linux-${{ matrix.goarch }}.linked
           if-no-files-found: error
 
   build-rust:

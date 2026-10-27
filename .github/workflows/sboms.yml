@@ -337,6 +337,21 @@ jobs:
             -o "cyclonedx-json=$PWD/bundle-${{ matrix.bundle }}.cdx.json" \
             --source-name "sbom-tools-${{ matrix.bundle }}"
 
+      # Libraries linked into a static binary leave nothing on disk for syft
+      # to find, so the build records them inside the bundle and they are
+      # added here. Only the php bundle has any today; for the rest this
+      # finds no records and the upload gets no additional packages.
+      - name: Collect what the static binaries link
+        id: linked
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          records=(unpacked/share/sbom-tools/linked/*.purls)
+          if (( ${#records[@]} )); then
+            cat "${records[@]}" | tee linked_packages.txt
+            echo "file=linked_packages.txt" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: sbomify/sbomify-action@master
         env:
           API_BASE_URL: ${{ steps.cfg.outputs.api_base_url }}
@@ -345,12 +360,34 @@ jobs:
           COMPONENT_NAME: sbom-tools - ${{ matrix.bundle }} bundle
           COMPONENT_VERSION: ${{ steps.cfg.outputs.version }}
           SBOM_FILE: bundle-${{ matrix.bundle }}.cdx.json
+          ADDITIONAL_PACKAGES_FILE: ${{ steps.linked.outputs.file }}
           OUTPUT_FILE: sbom-tools-bundle-${{ matrix.bundle }}.cdx.json
           UPLOAD: 'true'
           AUGMENT: 'true'
           ENRICH: 'true'
           PRODUCT_RELEASE: ${{ steps.cfg.outputs.product_release }}
           SBOMIFY_CACHE_DIR: ${{ github.workspace }}/.sbomify-cache
+
+      # sbomify-action only warns when it cannot inject additional packages,
+      # so a malformed record would upload an SBOM that silently lacks the
+      # libraries it was meant to add.
+      - name: Refuse an SBOM missing a linked library
+        if: steps.linked.outputs.file != ''
+        run: |
+          python3 - <<'EOF'
+          import json
+          import sys
+
+          from urllib.parse import unquote
+
+          document = json.load(open("sbom-tools-bundle-${{ matrix.bundle }}.cdx.json"))
+          present = {unquote(c.get("purl", "")).split("?")[0] for c in document.get("components") or []}
+          wanted = [line.strip() for line in open("linked_packages.txt") if line.strip() and not line.startswith("#")]
+          missing = [purl for purl in wanted if unquote(purl).split("?")[0] not in present]
+          for purl in wanted:
+              print(f"::notice::{'missing' if purl in missing else 'linked'}: {purl}")
+          sys.exit(f"not in the SBOM: {', '.join(missing)}" if missing else 0)
+          EOF
 
       # The augmented OUTPUT_FILE is what was uploaded, not the raw syft scan.
       - name: Attest the SBOM
