@@ -62,6 +62,13 @@
 # Two environments, chosen from the triggering ref, matching sbomify-action:
 #   * staging     -- every push to master -> stage.sbomify.com
 #   * production  -- a published release  -> app.sbomify.com
+#
+# Every upload is also tagged into a release of the "sbom-tools" product in
+# that environment, named for the version it carries: the release tag in
+# production, the short commit on staging. sbomify-action creates the release
+# on first use, so the first job to finish creates it and the rest join it.
+# Without this a cut release left eleven component SBOMs on production and no
+# product release tying them together.
 name: sboms
 
 on:
@@ -76,6 +83,12 @@ concurrency:
 
 permissions:
   contents: read
+
+# The "sbom-tools" product in each environment. Products are per-instance, so
+# the two IDs differ.
+env:
+  STAGING_PRODUCT_ID: WA1sUetBBFcW
+  PROD_PRODUCT_ID: PmdIuuj43CV3
 
 jobs:
   # ---------------------------------------------------------------------
@@ -172,6 +185,13 @@ jobs:
               echo "oidc_audience=stage.sbomify.com"
             } >> "$GITHUB_OUTPUT"
           fi
+          if [[ -n "$TAG" ]]; then PRODUCT_ID="$PROD_PRODUCT_ID"; else PRODUCT_ID="$STAGING_PRODUCT_ID"; fi
+          if [[ -n "$PRODUCT_ID" ]]; then
+            VERSION="${TAG:-${HEAD_SHA:0:7}}"
+            echo "product_release=[\"${PRODUCT_ID}:${VERSION}\"]" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No product ID for this environment; the SBOM will not be tagged into a product release"
+          fi
 
       - uses: sbomify/sbomify-action@master
         if: steps.present.outputs.found == 'true'
@@ -188,6 +208,7 @@ jobs:
           AUGMENT: 'true'
           ENRICH: 'true'
           OUTPUT_FILE: sbom-tools-${{ matrix.name }}.cdx.json
+          PRODUCT_RELEASE: ${{ steps.cfg.outputs.product_release }}
           SBOMIFY_CACHE_DIR: ${{ github.workspace }}/.sbomify-cache
 
   # ---------------------------------------------------------------------
@@ -240,6 +261,13 @@ jobs:
               echo "oidc_audience=stage.sbomify.com"
             } >> "$GITHUB_OUTPUT"
           fi
+          if [[ -n "$TAG" ]]; then PRODUCT_ID="$PROD_PRODUCT_ID"; else PRODUCT_ID="$STAGING_PRODUCT_ID"; fi
+          if [[ -n "$PRODUCT_ID" ]]; then
+            VERSION="${TAG:-${HEAD_SHA:0:7}}"
+            echo "product_release=[\"${PRODUCT_ID}:${VERSION}\"]" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No product ID for this environment; the SBOM will not be tagged into a product release"
+          fi
 
       # amd64 only. The two architectures hold the same tools at the same
       # versions and differ in machine code, which an SBOM does not describe --
@@ -275,6 +303,7 @@ jobs:
           UPLOAD: 'true'
           AUGMENT: 'true'
           ENRICH: 'true'
+          PRODUCT_RELEASE: ${{ steps.cfg.outputs.product_release }}
           SBOMIFY_CACHE_DIR: ${{ github.workspace }}/.sbomify-cache
 
       # An empty document uploads cleanly and describes nothing, which is the
